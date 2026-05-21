@@ -125,7 +125,6 @@ router.delete("/:id", authMiddleware, async (req, res) => {
   try {
     const fabric = await Fabric.findByIdAndDelete(req.params.id);
     if (!fabric) return res.status(404).json({ message: "Ткань не найдена" });
-    // Удаляем файлы изображений
     fabric.colors.forEach((color) => {
       if (color.imageUrl) {
         const filePath = path.join(
@@ -142,18 +141,15 @@ router.delete("/:id", authMiddleware, async (req, res) => {
   }
 });
 
-// POST /api/fabrics/:id/colors — добавить расцветку с фото
+// POST /api/fabrics/:id/colors — добавить расцветку (фото необязательно)
 router.post(
   "/:id/colors",
   authMiddleware,
   upload.single("image"),
   async (req, res) => {
     try {
-      if (!req.file)
-        return res.status(400).json({ message: "Изображение обязательно" });
-
       const { name, article } = req.body;
-      const imageUrl = `/uploads/${req.file.filename}`;
+      const imageUrl = req.file ? `/uploads/${req.file.filename}` : "";
 
       const fabric = await Fabric.findByIdAndUpdate(
         req.params.id,
@@ -174,6 +170,50 @@ router.post(
   }
 );
 
+// PUT /api/fabrics/:id/colors/:colorId — редактировать расцветку
+router.put(
+  "/:id/colors/:colorId",
+  authMiddleware,
+  upload.single("image"),
+  async (req, res) => {
+    try {
+      const fabric = await Fabric.findById(req.params.id);
+      if (!fabric) return res.status(404).json({ message: "Ткань не найдена" });
+
+      const color = fabric.colors.id(req.params.colorId);
+      if (!color)
+        return res.status(404).json({ message: "Расцветка не найдена" });
+
+      const { name, article } = req.body;
+      if (name !== undefined) color.name = name;
+      if (article !== undefined) color.article = article;
+
+      // Если загружено новое фото — удаляем старое
+      if (req.file) {
+        if (color.imageUrl) {
+          const oldPath = path.join(
+            __dirname,
+            "../../",
+            color.imageUrl.replace("/uploads/", "uploads/")
+          );
+          if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+        }
+        color.imageUrl = `/uploads/${req.file.filename}`;
+      }
+
+      await fabric.save();
+      res.json(fabric);
+    } catch (error) {
+      res
+        .status(500)
+        .json({
+          message: "Ошибка редактирования расцветки",
+          error: error.message,
+        });
+    }
+  }
+);
+
 // DELETE /api/fabrics/:id/colors/:colorId — удалить расцветку
 router.delete("/:id/colors/:colorId", authMiddleware, async (req, res) => {
   try {
@@ -184,7 +224,6 @@ router.delete("/:id/colors/:colorId", authMiddleware, async (req, res) => {
     if (!color)
       return res.status(404).json({ message: "Расцветка не найдена" });
 
-    // Удаляем файл
     if (color.imageUrl) {
       const filePath = path.join(
         __dirname,
