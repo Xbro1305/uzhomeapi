@@ -3,7 +3,8 @@ import mongoose from "mongoose";
 const colorVariantSchema = new mongoose.Schema({
   article: { type: String, default: "", trim: true },
   name: { type: String, default: "", trim: true },
-  imageUrl: { type: String, required: true },
+  order: { type: Number, default: 0, trim: true },
+  imageUrl: { type: String },
 });
 
 const fabricSchema = new mongoose.Schema(

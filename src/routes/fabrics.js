@@ -148,14 +148,19 @@ router.post(
   upload.single("image"),
   async (req, res) => {
     try {
-      const { name, article } = req.body;
+      const { name, article, order } = req.body;
       const imageUrl = req.file ? `/uploads/${req.file.filename}` : "";
 
       const fabric = await Fabric.findByIdAndUpdate(
         req.params.id,
         {
           $push: {
-            colors: { article: article || "", name: name || "", imageUrl },
+            colors: {
+              article: article || "",
+              order: order || 0,
+              name: name || "",
+              imageUrl,
+            },
           },
         },
         { new: true, runValidators: false }
@@ -184,9 +189,10 @@ router.put(
       if (!color)
         return res.status(404).json({ message: "Расцветка не найдена" });
 
-      const { name, article } = req.body;
+      const { name, article, order } = req.body;
       if (name !== undefined) color.name = name;
       if (article !== undefined) color.article = article;
+      if (order !== undefined) color.order = order || 0;
 
       // Если загружено новое фото — удаляем старое
       if (req.file) {
@@ -204,12 +210,10 @@ router.put(
       await fabric.save();
       res.json(fabric);
     } catch (error) {
-      res
-        .status(500)
-        .json({
-          message: "Ошибка редактирования расцветки",
-          error: error.message,
-        });
+      res.status(500).json({
+        message: "Ошибка редактирования расцветки",
+        error: error.message,
+      });
     }
   }
 );
