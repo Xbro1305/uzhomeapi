@@ -48,20 +48,22 @@ router.post(
       if (!req.file)
         return res.status(400).json({ message: "Файл не загружен" });
 
-      const imageUrl = `/uploads/${req.file.filename}`;
+      const imageUrl = "/uploads/banner.jpg";
 
-      const old = await Settings.findOne({ key: "banner_url" });
-      if (
-        old?.value &&
-        old.value.startsWith("/uploads/") &&
-        old.value !== "/uploads/banner.jpg"
-      ) {
-        const oldPath = path.join(
-          __dirname,
-          "../../",
-          old.value.replace("/uploads/", "uploads/")
-        );
-        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+      const uploadsDir = path.join(__dirname, "../../uploads");
+      const bannerPath = path.join(uploadsDir, "banner.jpg");
+
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+
+      // Если multer сохранил файл под случайным именем — заменяем им banner.jpg
+      if (req.file.path !== bannerPath) {
+        if (fs.existsSync(bannerPath)) {
+          fs.unlinkSync(bannerPath);
+        }
+
+        fs.renameSync(req.file.path, bannerPath);
       }
 
       const setting = await Settings.findOneAndUpdate(
@@ -69,11 +71,13 @@ router.post(
         { value: imageUrl },
         { new: true, upsert: true }
       );
+
       res.json(setting);
     } catch (error) {
-      res
-        .status(500)
-        .json({ message: "Ошибка загрузки", error: error.message });
+      res.status(500).json({
+        message: "Ошибка загрузки",
+        error: error.message,
+      });
     }
   }
 );
