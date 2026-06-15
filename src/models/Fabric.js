@@ -4,7 +4,7 @@ const colorVariantSchema = new mongoose.Schema({
   article: { type: String, default: "", trim: true },
   name: { type: String, default: "", trim: true },
   order: { type: Number, default: 0, trim: true },
-  imageUrl: { type: String },
+  imageUrl: { type: String, default: "", required: false },
 });
 
 const fabricSchema = new mongoose.Schema(
