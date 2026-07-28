@@ -5,6 +5,9 @@ const colorVariantSchema = new mongoose.Schema({
   name: { type: String, default: "", trim: true },
   order: { type: Number, default: 0, trim: true },
   imageUrl: { type: String, default: "", required: false },
+  // Код номенклатуры 1С — связь расцветки с остатком (Stock.nomenclatureCode).
+  // По нему тянем наличие; артикул для этого не годится (повторяется).
+  nomenclatureCode: { type: String, default: "", trim: true, index: true },
 });
 
 const fabricSchema = new mongoose.Schema(

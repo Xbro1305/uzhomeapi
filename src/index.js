@@ -9,6 +9,7 @@ import fabricRoutes from "./routes/fabrics.js";
 import contactRoutes from "./routes/contacts.js";
 import certificateRoutes from "./routes/certificates.js";
 import settingsRoutes from "./routes/settings.js";
+import stockRoutes from "./routes/stock.js";
 
 dotenv.config();
 
@@ -36,6 +37,7 @@ app.use("/api/fabrics", fabricRoutes);
 app.use("/api/contacts", contactRoutes);
 app.use("/api/certificates", certificateRoutes);
 app.use("/api/settings", settingsRoutes);
+app.use("/api/stock", stockRoutes);
 
 // Health check
 app.get("/api/health", (req, res) => {
