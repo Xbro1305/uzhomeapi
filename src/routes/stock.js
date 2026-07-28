@@ -57,6 +57,21 @@ router.post("/sync", maybeCheckToken, async (req, res) => {
       });
     }
 
+    // Режим полной выгрузки (снимок всех остатков за один запрос).
+    // Включается флагом ?mode=full / ?full=1 в URL, либо { "full": true }
+    // / { "mode": "full" } в теле (когда тело — объект-обёртка, не массив).
+    // В этом режиме позиции, которых НЕТ в этой выгрузке, обнуляются
+    // (quantity=0) — чтобы распроданный товар не «висел» в наличии. Бронь
+    // при этом сохраняется. ВАЖНО: полный снимок должен прийти ОДНИМ
+    // запросом; если 1С шлёт постранично — full включать нельзя (иначе
+    // первая страница обнулит остальные). Для дельта-выгрузки не включать.
+    const fullSync =
+      req.query.mode === "full" ||
+      req.query.full === "1" ||
+      req.query.full === "true" ||
+      req.body?.full === true ||
+      req.body?.mode === "full";
+
     const now = new Date();
     const results = {
       received: items.length,
@@ -123,12 +138,27 @@ router.post("/sync", maybeCheckToken, async (req, res) => {
         (bulk.matchedCount || 0);
     }
 
+    // Полная выгрузка: всё, что не пришло в этом снимке (lastSyncedAt раньше
+    // текущего прогона), считаем распроданным — обнуляем quantity. Бронь
+    // (reserved) не трогаем. Делаем только если в снимке реально были позиции,
+    // чтобы пустой/битый запрос не обнулил весь каталог.
+    let prunedToZero = 0;
+    if (fullSync && ops.length > 0) {
+      const pruneRes = await Stock.updateMany(
+        { lastSyncedAt: { $lt: now }, quantity: { $gt: 0 } },
+        { $set: { quantity: 0, lastSyncedAt: now } }
+      );
+      prunedToZero = pruneRes.modifiedCount || 0;
+    }
+
     // ответ показывает, что распозналось — чтобы Владимир сразу увидел результат
     res.json({
       message: "Принято",
+      mode: fullSync ? "full" : "partial",
       received: results.received,
       saved: results.upserted,
       skipped: results.skipped,
+      prunedToZero, // сколько позиций обнулено как отсутствующие в полной выгрузке
       recognizedFields: [...results.recognizedFields],
       skippedExamples: results.skippedExamples,
       sampleSaved: results.sample,
