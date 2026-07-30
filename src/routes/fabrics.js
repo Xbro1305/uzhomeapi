@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import Fabric from "../models/Fabric.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { upload } from "../middleware/upload.js";
+import { generateThumb, deleteThumb } from "../utils/imageThumb.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -134,6 +135,7 @@ router.delete("/:id", authMiddleware, async (req, res) => {
         );
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
       }
+      deleteThumb(color.thumbUrl);
     });
     res.json({ message: "Ткань удалена" });
   } catch (error) {
@@ -150,6 +152,7 @@ router.post(
     try {
       const { name, article, order } = req.body;
       const imageUrl = req.file ? `/uploads/${req.file.filename}` : "";
+      const thumbUrl = req.file ? await generateThumb(req.file.filename) : "";
 
       const fabric = await Fabric.findByIdAndUpdate(
         req.params.id,
@@ -160,6 +163,7 @@ router.post(
               order: order || 0,
               name: name || "",
               imageUrl,
+              thumbUrl,
             },
           },
         },
@@ -194,7 +198,7 @@ router.put(
       if (article !== undefined) color.article = article;
       if (order !== undefined) color.order = order || 0;
 
-      // Если загружено новое фото — удаляем старое
+      // Если загружено новое фото — удаляем старое (оригинал + превью)
       if (req.file) {
         if (color.imageUrl) {
           const oldPath = path.join(
@@ -204,7 +208,9 @@ router.put(
           );
           if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
         }
+        deleteThumb(color.thumbUrl);
         color.imageUrl = `/uploads/${req.file.filename}`;
+        color.thumbUrl = await generateThumb(req.file.filename);
       }
 
       await fabric.save();
@@ -228,7 +234,7 @@ router.delete("/:id/colors/:colorId", authMiddleware, async (req, res) => {
     if (!color)
       return res.status(404).json({ message: "Расцветка не найдена" });
 
-    // удаляем файл, если он есть
+    // удаляем файл, если он есть (оригинал + превью)
     if (color.imageUrl) {
       const filePath = path.join(
         __dirname,
@@ -237,6 +243,7 @@ router.delete("/:id/colors/:colorId", authMiddleware, async (req, res) => {
       );
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     }
+    deleteThumb(color.thumbUrl);
 
     // атомарное удаление — не валидирует остальные расцветки
     const updated = await Fabric.findByIdAndUpdate(
