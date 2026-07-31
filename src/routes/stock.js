@@ -49,6 +49,17 @@ function extractItems(body) {
 
 router.post("/sync", maybeCheckToken, async (req, res) => {
   try {
+    // ДИАГНОСТИКА ФОРМАТА 1С: логируем сырое тело каждой выгрузки, чтобы
+    // видеть реальные названия колонок и при необходимости расширить маппер.
+    try {
+      const raw = JSON.stringify(req.body);
+      console.log(
+        `[stock/sync] ${new Date().toISOString()} ct=${req.headers["content-type"]} len=${raw?.length} body=${raw?.slice(0, 3000)}`
+      );
+    } catch (_) {
+      console.log("[stock/sync] тело не сериализуется:", typeof req.body);
+    }
+
     const items = extractItems(req.body);
     if (!items) {
       return res.status(400).json({
@@ -150,6 +161,10 @@ router.post("/sync", maybeCheckToken, async (req, res) => {
       );
       prunedToZero = pruneRes.modifiedCount || 0;
     }
+
+    console.log(
+      `[stock/sync] => received=${results.received} saved=${results.upserted} skipped=${results.skipped} fields=[${[...results.recognizedFields].join(",")}]`
+    );
 
     // ответ показывает, что распозналось — чтобы Владимир сразу увидел результат
     res.json({
