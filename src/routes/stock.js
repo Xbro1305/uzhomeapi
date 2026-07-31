@@ -7,6 +7,18 @@ import { mapStockItem } from "../utils/stockMapper.js";
 const router = express.Router();
 
 /**
+ * Приём тела при ЛЮБОМ Content-Type.
+ * 1С/Postman часто шлют JSON без заголовка `Content-Type: application/json` —
+ * тогда глобальный express.json() тело не парсит и оно приходит пустым ({}).
+ * Этот парсер читает сырое тело как текст для всех типов, КРОМЕ application/json
+ * (тот уже разобран глобально). Дальше строку разбираем вручную JSON.parse.
+ */
+const parseAnyBody = express.text({
+  type: (req) => !req.is("application/json"),
+  limit: "50mb",
+});
+
+/**
  * POST /api/stock/sync — приём остатков из 1С.
  *
  * ⚠️ РЕЖИМ ТЕСТИРОВАНИЯ ФОРМАТА:
@@ -47,20 +59,39 @@ function extractItems(body) {
   return null;
 }
 
-router.post("/sync", maybeCheckToken, async (req, res) => {
+router.post("/sync", maybeCheckToken, parseAnyBody, async (req, res) => {
   try {
+    // Если тело пришло строкой (JSON без application/json) — разбираем вручную.
+    let body = req.body;
+    if (typeof body === "string") {
+      const t = body.trim();
+      if (!t) {
+        body = null;
+      } else {
+        try {
+          body = JSON.parse(t);
+        } catch (e) {
+          return res.status(400).json({
+            message:
+              "Тело не является валидным JSON. Пришлите массив позиций (или { items: [...] }).",
+            error: e.message,
+          });
+        }
+      }
+    }
+
     // ДИАГНОСТИКА ФОРМАТА 1С: логируем сырое тело каждой выгрузки, чтобы
     // видеть реальные названия колонок и при необходимости расширить маппер.
     try {
-      const raw = JSON.stringify(req.body);
+      const raw = JSON.stringify(body);
       console.log(
         `[stock/sync] ${new Date().toISOString()} ct=${req.headers["content-type"]} len=${raw?.length} body=${raw?.slice(0, 3000)}`
       );
     } catch (_) {
-      console.log("[stock/sync] тело не сериализуется:", typeof req.body);
+      console.log("[stock/sync] тело не сериализуется:", typeof body);
     }
 
-    const items = extractItems(req.body);
+    const items = extractItems(body);
     if (!items) {
       return res.status(400).json({
         message:
@@ -80,8 +111,7 @@ router.post("/sync", maybeCheckToken, async (req, res) => {
       req.query.mode === "full" ||
       req.query.full === "1" ||
       req.query.full === "true" ||
-      req.body?.full === true ||
-      req.body?.mode === "full";
+      (body && !Array.isArray(body) && (body.full === true || body.mode === "full"));
 
     const now = new Date();
     const results = {
