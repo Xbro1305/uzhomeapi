@@ -27,10 +27,27 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-app.use(express.json());
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+// Сохраняем СЫРОЕ тело запроса независимо от Content-Type — 1С может слать
+// JSON с любым заголовком (application/json, text/plain, form-urlencoded,
+// без заголовка). Приёмник остатков затем парсит req.rawBody напрямую.
+const captureRaw = (req, _res, buf) => {
+  if (buf && buf.length) req.rawBody = buf.toString("utf8");
+};
+app.use(express.json({ limit: "50mb", verify: captureRaw }));
+app.use(express.urlencoded({ limit: "50mb", extended: true, verify: captureRaw }));
+app.use(
+  express.text({
+    // всё, что НЕ разобрали json/urlencoded и НЕ multipart (файлы — multer)
+    type: (req) =>
+      !req.is("application/json") &&
+      !req.is("application/x-www-form-urlencoded") &&
+      !req.is("multipart/*"),
+    limit: "50mb",
+    verify: captureRaw,
+  })
+);
 
 // Routes
 app.use("/api/auth", authRoutes);

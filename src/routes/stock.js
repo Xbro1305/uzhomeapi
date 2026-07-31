@@ -7,16 +7,25 @@ import { mapStockItem } from "../utils/stockMapper.js";
 const router = express.Router();
 
 /**
- * Приём тела при ЛЮБОМ Content-Type.
- * 1С/Postman часто шлют JSON без заголовка `Content-Type: application/json` —
- * тогда глобальный express.json() тело не парсит и оно приходит пустым ({}).
- * Этот парсер читает сырое тело как текст для всех типов, КРОМЕ application/json
- * (тот уже разобран глобально). Дальше строку разбираем вручную JSON.parse.
+ * Достаём позиции из запроса при ЛЮБОМ Content-Type.
+ * Сырое тело сохранено в req.rawBody (см. index.js) — парсим его напрямую,
+ * поэтому неважно, какой заголовок поставила 1С (application/json, text/plain,
+ * form-urlencoded, без заголовка). Если сырое тело — валидный JSON, берём его;
+ * иначе откатываемся на уже разобранное express-ом тело.
  */
-const parseAnyBody = express.text({
-  type: (req) => !req.is("application/json"),
-  limit: "50mb",
-});
+function resolveBody(req) {
+  const raw =
+    typeof req.body === "string" ? req.body : req.rawBody || "";
+  const t = raw.trim();
+  if (t) {
+    try {
+      return JSON.parse(t);
+    } catch {
+      /* сырое тело не JSON — используем разобранное ниже */
+    }
+  }
+  return req.body ?? null;
+}
 
 /**
  * POST /api/stock/sync — приём остатков из 1С.
@@ -59,26 +68,9 @@ function extractItems(body) {
   return null;
 }
 
-router.post("/sync", maybeCheckToken, parseAnyBody, async (req, res) => {
+router.post("/sync", maybeCheckToken, async (req, res) => {
   try {
-    // Если тело пришло строкой (JSON без application/json) — разбираем вручную.
-    let body = req.body;
-    if (typeof body === "string") {
-      const t = body.trim();
-      if (!t) {
-        body = null;
-      } else {
-        try {
-          body = JSON.parse(t);
-        } catch (e) {
-          return res.status(400).json({
-            message:
-              "Тело не является валидным JSON. Пришлите массив позиций (или { items: [...] }).",
-            error: e.message,
-          });
-        }
-      }
-    }
+    const body = resolveBody(req);
 
     // ДИАГНОСТИКА ФОРМАТА 1С: логируем сырое тело каждой выгрузки, чтобы
     // видеть реальные названия колонок и при необходимости расширить маппер.
