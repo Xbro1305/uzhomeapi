@@ -1,10 +1,18 @@
 import express from "express";
+import multer from "multer";
 import Stock from "../models/Stock.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { ingestTokenMiddleware } from "../middleware/ingestToken.js";
 import { mapStockItem } from "../utils/stockMapper.js";
 
 const router = express.Router();
+
+// Приём файла (multipart/form-data) — на случай, если 1С шлёт выгрузку
+// вложением. Держим в памяти, читаем буфер, ничего не сохраняем на диск.
+const memUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+});
 
 /**
  * Достаём позиции из запроса при ЛЮБОМ Content-Type.
@@ -13,17 +21,39 @@ const router = express.Router();
  * form-urlencoded, без заголовка). Если сырое тело — валидный JSON, берём его;
  * иначе откатываемся на уже разобранное express-ом тело.
  */
+function tryParse(str) {
+  const t = String(str || "").trim();
+  if (!t) return undefined;
+  try {
+    return JSON.parse(t);
+  } catch {
+    return undefined;
+  }
+}
+
 function resolveBody(req) {
-  const raw =
-    typeof req.body === "string" ? req.body : req.rawBody || "";
-  const t = raw.trim();
-  if (t) {
-    try {
-      return JSON.parse(t);
-    } catch {
-      /* сырое тело не JSON — используем разобранное ниже */
+  // 1) файл из multipart (выгрузка вложением, любое имя поля)
+  if (Array.isArray(req.files)) {
+    for (const f of req.files) {
+      const parsed = tryParse(f.buffer?.toString("utf8"));
+      if (parsed !== undefined) return parsed;
     }
   }
+  // 2) поле формы, значение которого — JSON (multipart/urlencoded)
+  if (req.body && typeof req.body === "object" && !Array.isArray(req.body)) {
+    for (const v of Object.values(req.body)) {
+      if (typeof v === "string") {
+        const parsed = tryParse(v);
+        if (Array.isArray(parsed) || (parsed && typeof parsed === "object"))
+          return parsed;
+      }
+    }
+  }
+  // 3) сырое тело (любой Content-Type: json/text/form-urlencoded/без заголовка)
+  const raw = typeof req.body === "string" ? req.body : req.rawBody || "";
+  const parsed = tryParse(raw);
+  if (parsed !== undefined) return parsed;
+
   return req.body ?? null;
 }
 
@@ -68,7 +98,7 @@ function extractItems(body) {
   return null;
 }
 
-router.post("/sync", maybeCheckToken, async (req, res) => {
+router.post("/sync", maybeCheckToken, memUpload.any(), async (req, res) => {
   try {
     const body = resolveBody(req);
 
@@ -76,8 +106,9 @@ router.post("/sync", maybeCheckToken, async (req, res) => {
     // видеть реальные названия колонок и при необходимости расширить маппер.
     try {
       const raw = JSON.stringify(body);
+      const files = (req.files || []).map((f) => `${f.fieldname}:${f.size}b`);
       console.log(
-        `[stock/sync] ${new Date().toISOString()} ct=${req.headers["content-type"]} len=${raw?.length} body=${raw?.slice(0, 3000)}`
+        `[stock/sync] ${new Date().toISOString()} ct=${req.headers["content-type"]} files=[${files}] len=${raw?.length} body=${raw?.slice(0, 3000)}`
       );
     } catch (_) {
       console.log("[stock/sync] тело не сериализуется:", typeof body);
