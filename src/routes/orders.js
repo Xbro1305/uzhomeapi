@@ -6,6 +6,10 @@ import { authMiddleware } from "../middleware/auth.js";
 import {
   sendTelegram,
   formatOrderMessage,
+  answerCallback,
+  editMessage,
+  orderKeyboard,
+  STATUS_LABEL,
   PICKUP_ADDRESS,
 } from "../utils/telegram.js";
 
@@ -42,6 +46,27 @@ async function releaseReservation(order) {
     ).catch(() => {});
   }
   order.reservationReleased = true;
+}
+
+// Применить смену статуса с корректной работой брони/остатка. Используется
+// и в админ-API, и в обработчике кнопок Telegram.
+async function applyStatusChange(order, status) {
+  if (status === "cancelled") {
+    await releaseReservation(order); // снять бронь
+  }
+  if (status === "completed" && !order.reservationReleased) {
+    // продано: списываем и остаток, и бронь
+    for (const it of order.items) {
+      await Stock.updateOne(
+        { nomenclatureCode: it.nomenclatureCode },
+        { $inc: { quantity: -it.meters, reserved: -it.meters } }
+      ).catch(() => {});
+    }
+    order.reservationReleased = true;
+  }
+  order.status = status;
+  await order.save();
+  return order;
 }
 
 /**
@@ -179,7 +204,10 @@ router.post("/", async (req, res) => {
       status: "new",
     });
 
-    const tg = await sendTelegram(formatOrderMessage(order));
+    const tg = await sendTelegram(
+      formatOrderMessage(order),
+      orderKeyboard(order._id, "new")
+    );
     if (tg.ok) {
       order.telegramNotified = true;
       await order.save();
@@ -239,28 +267,66 @@ router.patch("/admin/:id/status", authMiddleware, async (req, res) => {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: "Заказ не найден" });
 
-    if (status === "cancelled") {
-      await releaseReservation(order);
-    }
-    if (status === "completed") {
-      if (!order.reservationReleased) {
-        for (const it of order.items) {
-          await Stock.updateOne(
-            { nomenclatureCode: it.nomenclatureCode },
-            { $inc: { quantity: -it.meters, reserved: -it.meters } }
-          ).catch(() => {});
-        }
-        order.reservationReleased = true;
-      }
-    }
-
-    order.status = status;
-    await order.save();
+    await applyStatusChange(order, status);
     res.json(order);
   } catch (error) {
     res
       .status(500)
       .json({ message: "Ошибка обновления", error: error.message });
+  }
+});
+
+/**
+ * POST /api/orders/tg/webhook — обработка нажатий inline-кнопок в Telegram.
+ * Telegram шлёт callback_query с data вида "ord:<orderId>:<status>".
+ * Защита — секрет в заголовке X-Telegram-Bot-Api-Secret-Token.
+ */
+router.post("/tg/webhook", async (req, res) => {
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (
+    secret &&
+    req.headers["x-telegram-bot-api-secret-token"] !== secret
+  ) {
+    return res.sendStatus(401);
+  }
+  res.sendStatus(200); // подтверждаем приём сразу
+
+  const cq = req.body?.callback_query;
+  if (!cq) return;
+  try {
+    const [prefix, orderId, status] = String(cq.data || "").split(":");
+    if (prefix !== "ord") return;
+    if (!["confirmed", "completed", "cancelled"].includes(status)) {
+      await answerCallback(cq.id, "Неизвестная команда");
+      return;
+    }
+    const order = await Order.findById(orderId);
+    if (!order) {
+      await answerCallback(cq.id, "Заказ не найден");
+      return;
+    }
+    if (order.status === status) {
+      await answerCallback(cq.id, `Уже: ${STATUS_LABEL[status]}`);
+      return;
+    }
+    await applyStatusChange(order, status);
+    await answerCallback(cq.id, `Статус: ${STATUS_LABEL[status]}`);
+
+    // обновляем сообщение: добавляем статус и подгоняем кнопки
+    if (cq.message) {
+      const who = cq.from?.first_name || cq.from?.username || "";
+      const text =
+        formatOrderMessage(order) +
+        `\n\n<b>Статус: ${STATUS_LABEL[status]}</b>${who ? ` · ${who}` : ""}`;
+      await editMessage(
+        cq.message.chat.id,
+        cq.message.message_id,
+        text,
+        orderKeyboard(order._id, status)
+      );
+    }
+  } catch (e) {
+    console.error("tg webhook error:", e.message);
   }
 });
 

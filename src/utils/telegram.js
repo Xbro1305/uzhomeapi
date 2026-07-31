@@ -20,40 +20,87 @@ function fmtNum(n) {
   return Number(n || 0).toLocaleString("ru-RU");
 }
 
-export async function sendTelegram(text) {
+async function tgCall(method, payload) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return { ok: false, reason: "not_configured" };
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      console.error(`❌ Telegram ${method}:`, data.description);
+      return { ok: false, reason: data.description };
+    }
+    return { ok: true, result: data.result };
+  } catch (err) {
+    console.error(`❌ Telegram ${method}:`, err.message);
+    return { ok: false, reason: err.message };
+  }
+}
+
+export async function sendTelegram(text, replyMarkup) {
   const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) {
+  if (!process.env.TELEGRAM_BOT_TOKEN || !chatId) {
     console.warn(
       "⚠️  TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID не заданы — уведомление не отправлено"
     );
     return { ok: false, reason: "not_configured" };
   }
-  try {
-    const res = await fetch(
-      `https://api.telegram.org/bot${token}/sendMessage`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text,
-          parse_mode: "HTML",
-          disable_web_page_preview: true,
-        }),
-      }
-    );
-    const data = await res.json();
-    if (!data.ok) {
-      console.error("❌ Telegram вернул ошибку:", data.description);
-      return { ok: false, reason: data.description };
-    }
-    return { ok: true };
-  } catch (err) {
-    console.error("❌ Не удалось отправить в Telegram:", err.message);
-    return { ok: false, reason: err.message };
-  }
+  return tgCall("sendMessage", {
+    chat_id: chatId,
+    text,
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+    ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+  });
 }
+
+export async function answerCallback(callbackQueryId, text) {
+  return tgCall("answerCallbackQuery", {
+    callback_query_id: callbackQueryId,
+    text: text || "",
+  });
+}
+
+export async function editMessage(chatId, messageId, text, replyMarkup) {
+  return tgCall("editMessageText", {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+    reply_markup: replyMarkup || { inline_keyboard: [] },
+  });
+}
+
+// Кнопки управления заказом в зависимости от статуса
+export function orderKeyboard(orderId, status = "new") {
+  const id = String(orderId);
+  if (status === "completed" || status === "cancelled") {
+    return { inline_keyboard: [] };
+  }
+  const rows = [];
+  if (status === "new") {
+    rows.push([
+      { text: "✅ Подтвердить", callback_data: `ord:${id}:confirmed` },
+    ]);
+  }
+  rows.push([
+    { text: "📦 Выполнен", callback_data: `ord:${id}:completed` },
+    { text: "❌ Отменить", callback_data: `ord:${id}:cancelled` },
+  ]);
+  return { inline_keyboard: rows };
+}
+
+export const STATUS_LABEL = {
+  new: "Новый",
+  confirmed: "Подтверждён",
+  completed: "Выполнен",
+  cancelled: "Отменён",
+};
 
 // ---- Заказ ----
 export function formatOrderMessage(order) {
