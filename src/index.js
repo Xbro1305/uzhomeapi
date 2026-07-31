@@ -10,6 +10,7 @@ import contactRoutes from "./routes/contacts.js";
 import certificateRoutes from "./routes/certificates.js";
 import settingsRoutes from "./routes/settings.js";
 import stockRoutes from "./routes/stock.js";
+import orderRoutes from "./routes/orders.js";
 
 dotenv.config();
 
@@ -38,6 +39,7 @@ app.use("/api/contacts", contactRoutes);
 app.use("/api/certificates", certificateRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/stock", stockRoutes);
+app.use("/api/orders", orderRoutes);
 
 // Health check
 app.get("/api/health", (req, res) => {

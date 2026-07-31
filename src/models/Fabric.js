@@ -23,6 +23,8 @@ const fabricSchema = new mongoose.Schema(
     price: { type: Number, required: true, min: 0 },
     priceUnit: { type: String, default: "за метр" },
     currency: { type: String, default: "сум" },
+    // Длина рулона (шаг продажи в метрах). Клиент берёт метраж кратно этому.
+    rollLength: { type: Number, default: 50 },
     colors: [colorVariantSchema],
     isActive: { type: Boolean, default: true },
     order: { type: Number, default: 0 },

@@ -60,6 +60,7 @@ router.post("/", authMiddleware, async (req, res) => {
       currency,
       isActive,
       order,
+      rollLength,
     } = req.body;
     const fabric = new Fabric({
       name,
@@ -72,6 +73,7 @@ router.post("/", authMiddleware, async (req, res) => {
       currency,
       isActive,
       order: Number(order) || 0,
+      rollLength: Number(rollLength) || 50,
       colors: [],
     });
     await fabric.save();
@@ -95,6 +97,7 @@ router.put("/:id", authMiddleware, async (req, res) => {
       currency,
       isActive,
       order,
+      rollLength,
     } = req.body;
     const fabric = await Fabric.findByIdAndUpdate(
       req.params.id,
@@ -109,6 +112,7 @@ router.put("/:id", authMiddleware, async (req, res) => {
         currency,
         isActive,
         order: Number(order) || 0,
+        rollLength: Number(rollLength) || 50,
       },
       { new: true, runValidators: true }
     );
@@ -150,7 +154,7 @@ router.post(
   upload.single("image"),
   async (req, res) => {
     try {
-      const { name, article, order } = req.body;
+      const { name, article, order, nomenclatureCode } = req.body;
       const imageUrl = req.file ? `/uploads/${req.file.filename}` : "";
       const thumbUrl = req.file ? await generateThumb(req.file.filename) : "";
 
@@ -162,6 +166,7 @@ router.post(
               article: article || "",
               order: order || 0,
               name: name || "",
+              nomenclatureCode: nomenclatureCode || "",
               imageUrl,
               thumbUrl,
             },
@@ -193,10 +198,12 @@ router.put(
       if (!color)
         return res.status(404).json({ message: "Расцветка не найдена" });
 
-      const { name, article, order } = req.body;
+      const { name, article, order, nomenclatureCode } = req.body;
       if (name !== undefined) color.name = name;
       if (article !== undefined) color.article = article;
       if (order !== undefined) color.order = order || 0;
+      if (nomenclatureCode !== undefined)
+        color.nomenclatureCode = nomenclatureCode;
 
       // Если загружено новое фото — удаляем старое (оригинал + превью)
       if (req.file) {
