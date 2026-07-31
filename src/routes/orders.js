@@ -292,20 +292,15 @@ router.post("/tg/webhook", async (req, res) => {
   res.sendStatus(200); // подтверждаем приём сразу
 
   const cq = req.body?.callback_query;
-  if (!cq) {
-    console.log("[tg/webhook] нет callback_query, body-keys:", Object.keys(req.body || {}));
-    return;
-  }
+  if (!cq) return;
   try {
     const [prefix, orderId, status] = String(cq.data || "").split(":");
-    console.log(`[tg/webhook] data=${cq.data} prefix=${prefix} id=${orderId} status=${status}`);
     if (prefix !== "ord") return;
     if (!["confirmed", "completed", "cancelled"].includes(status)) {
       await answerCallback(cq.id, "Неизвестная команда");
       return;
     }
     const order = await Order.findById(orderId);
-    console.log(`[tg/webhook] order found=${!!order} curStatus=${order?.status}`);
     if (!order) {
       await answerCallback(cq.id, "Заказ не найден");
       return;
@@ -315,7 +310,6 @@ router.post("/tg/webhook", async (req, res) => {
       return;
     }
     await applyStatusChange(order, status);
-    console.log(`[tg/webhook] applied -> ${order.status}`);
     await answerCallback(cq.id, `Статус: ${STATUS_LABEL[status]}`);
 
     // обновляем сообщение: добавляем статус и подгоняем кнопки
